@@ -1,6 +1,10 @@
 {
   "src": [
     "pages/Index",
-    "pages/TravelHomePage"
+    "pages/TravelHomePage",
+    "pages/TravelPostPage",
+    "pages/HotelOrderPage",
+    "pages/FeedbackPage",
+    "pages/ThemeTravelPage"
   ]
 }
