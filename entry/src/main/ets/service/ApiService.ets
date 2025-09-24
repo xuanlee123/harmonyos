@@ -38,6 +38,32 @@ interface ErrorResponseDto {
   message?: string;
 }
 
+// 后端 Attraction DTO（依据数据库与控制器推断的常见字段）
+interface AttractionDto {
+  id: number;
+  name: string;
+  city?: string;
+  address?: string;
+  category?: string;
+  rating?: number;
+  reviewCount?: number; // 对应 review_count
+  review_count?: number; // 兼容不同命名
+  description?: string;
+  images?: string | string[]; // 可能为 JSON 数组或数组
+}
+
+// 门票相关 DTO（根据后端 /api/ticket-types）
+interface TicketTypeDto {
+  id: number;
+  attractionId: number;
+  name: string;
+  description?: string;
+  price: number; // 分
+  originalPrice?: number;
+  stock: number;
+  validDays?: number;
+}
+
 class ApiService {
   // 配置后端基础地址（仅修改这里即可切换环境）
   private baseUrl: string = 'http://localhost:8081';
@@ -140,19 +166,74 @@ class ApiService {
   }
 
   // 景点相关接口
+  // 后端真实接口为 /api/attractions 与 /api/attractions/{id}
+  // 定义后端 Attraction 结构并在前端进行映射，保持前端 ScenicSpot 类型不变
+  private async httpGet<T>(path: string): Promise<T> {
+    const options: http.HttpRequestOptions = { method: http.RequestMethod.GET };
+    const resp = await this.httpRequest.request(`${this.baseUrl}${path}`, options);
+    if (resp.responseCode === 200) {
+      return JSON.parse(resp.result as string) as T;
+    }
+    throw new Error(`HTTP Error: ${resp.responseCode}`);
+  }
+
+  private mapAttractionToScenicSpot(a: AttractionDto): ScenicSpot {
+    const images: string[] = Array.isArray(a.images)
+      ? a.images as string[]
+      : (typeof a.images === 'string' && a.images ? this.safeParseImages(a.images) : []);
+    const reviews = (a.reviewCount !== undefined ? a.reviewCount : (a.review_count !== undefined ? a.review_count : 0));
+    const location = a.city ? a.city : (a.address ? a.address : '');
+    const spot: ScenicSpot = new ScenicSpot();
+    spot.id = String(a.id);
+    spot.name = a.name || '';
+    spot.level = a.category || '';
+    spot.rating = a.rating ?? 0;
+    spot.reviews = reviews;
+    spot.distance = 0;
+    spot.price = 0;
+    spot.isFree = false;
+    spot.heatLevel = 0;
+    spot.location = location;
+    spot.description = a.description || '';
+    spot.category = a.category || '';
+    spot.images = images.length > 0 ? images : [];
+    return spot;
+  }
+
+
+  private safeParseImages(raw: string): string[] {
+    try {
+      const parsed: string[] = JSON.parse(raw) as string[];
+      if (Array.isArray(parsed)) {
+        // 严格校验元素均为字符串，避免隐式 any
+        const valid: boolean = parsed.every((item: string) => typeof item === 'string');
+        return valid ? parsed : [];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   async getScenicSpots(category?: string, keyword?: string, page: number = 1): Promise<ScenicSpot[]> {
-    let url = `/scenic/spots?page=${page}`;
+    const list = await this.httpGet<AttractionDto[]>(`/api/attractions`);
+    let mapped = list.map((a) => this.mapAttractionToScenicSpot(a));
     if (category && category !== 'all') {
-      url += `&category=${category}`;
+      mapped = mapped.filter(s => (s.category || '').toLowerCase().includes(category.toLowerCase()));
     }
-    if (keyword) {
-      url += `&keyword=${encodeURIComponent(keyword)}`;
+    if (keyword && keyword.trim().length > 0) {
+      const k = keyword.trim().toLowerCase();
+      mapped = mapped.filter(s => s.name.toLowerCase().includes(k) || (s.location || '').toLowerCase().includes(k));
     }
-    return await this.request<ScenicSpot[]>(url, http.RequestMethod.GET);
+    // 简单分页（前端分页），page 从 1 开始
+    const pageSize = 50;
+    const start = (page - 1) * pageSize;
+    return mapped.slice(start, start + pageSize);
   }
 
   async getScenicSpotDetail(id: string): Promise<ScenicSpot> {
-    return await this.request<ScenicSpot>(`/scenic/spots/${id}`, http.RequestMethod.GET);
+    const a = await this.httpGet<AttractionDto>(`/api/attractions/${id}`);
+    return this.mapAttractionToScenicSpot(a);
   }
 
   // 推荐内容接口
@@ -216,6 +297,15 @@ class ApiService {
   async uploadImage(imageData: ArrayBuffer): Promise<UploadResponse> {
     const uploadData: ImageUploadData = { image: imageData };
     return await this.request<UploadResponse>('/upload/image', http.RequestMethod.POST, uploadData);
+  }
+
+  // 门票相关接口（根据后端 /api/ticket-types 与 /api/ticket-bookings）
+  async getTicketTypesByAttraction(attractionId: string): Promise<TicketTypeDto[]> {
+    return await this.httpGet<TicketTypeDto[]>(`/api/ticket-types/attraction/${attractionId}`);
+  }
+
+  async getAvailableTicketTypesByAttraction(attractionId: string): Promise<TicketTypeDto[]> {
+    return await this.httpGet<TicketTypeDto[]>(`/api/ticket-types/attraction/${attractionId}/available`);
   }
 }
 
