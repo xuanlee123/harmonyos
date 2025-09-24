@@ -1,11 +1,16 @@
 import router from '@ohos.router';
 import http from '@ohos.net.http';
+import ApiService from '../service/ApiService';
 
 // 定义API响应数据类型
-interface ApiResponse {
-  success: boolean;
-  message?: string;
-  token?: string;
+// 后端登录返回结构（与后端 LoginResponse 对应）
+interface LoginResponseDto {
+  token: string;
+  tokenType: string; // Bearer
+  userId: number;
+  username: string;
+  nickname: string;
+  role: string;
 }
 
 // 定义HTTP错误类型（替代http.HttpError）
@@ -173,107 +178,38 @@ struct Index {
     }
   }
 
-  // 登录逻辑 - 与后端交互接口
-  login(): void {
-    // 模拟网络请求延迟
-    setTimeout(() => {
-      // 实际项目中替换为真实后端API
-      const loginApiUrl: string = 'https://your-backend-domain.com/api/login';
-
-      // 创建HTTP请求
-      const request: http.HttpRequest = http.createHttp();
-      request.request(
-        loginApiUrl,
-        {
-          method: http.RequestMethod.POST,
-          header: {
-            'Content-Type': 'application/json'
-          },
-          extraData: {
-            username: this.username,
-            password: this.password
-          },
-          connectTimeout: 60000,
-          readTimeout: 60000
-        },
-        // 修正：使用自定义的HttpError类型
-        (err: HttpError | undefined, data: http.HttpResponse) => {
-          this.isLoading = false;
-          if (!err) {
-            // 处理响应结果
-            if (data.responseCode === 200) {
-              const result: ApiResponse = JSON.parse(data.result as string);
-              if (result.success) {
-                // 登录成功，保存token等信息
-                if (result.token) {
-                  // AppStorage.SetOrCreate('token', result.token);
-                }
-                this.navigateToHomePage();
-              } else {
-                this.errorMessage = result.message || '登录失败，请检查用户名和密码';
-              }
-            } else {
-              this.errorMessage = '服务器错误，请稍后重试';
-            }
-          } else {
-            console.error(`登录请求错误: ${JSON.stringify(err)}`);
-            this.errorMessage = '网络错误，请检查网络连接';
-          }
-          // 关闭请求
-          request.destroy();
-        }
-      );
-    }, 1000);
+  // 登录逻辑 - 调用 ApiService 对接后端
+  async login(): Promise<void> {
+    try {
+      const result: LoginResponseDto = await ApiService.login(this.username, this.password);
+      // 可选：持久化 token
+      // AppStorage.SetOrCreate('authToken', `${result.tokenType} ${result.token}`);
+      // 登录成功进入主页
+      this.navigateToHomePage();
+    } catch (e) {
+      console.error('登录失败: ' + JSON.stringify(e));
+      this.errorMessage = '登录失败，请检查用户名或密码';
+    } finally {
+      this.isLoading = false;
+    }
   }
 
-  // 注册逻辑 - 与后端交互接口
-  register(): void {
-    // 模拟网络请求延迟
-    setTimeout(() => {
-      // 实际项目中替换为真实后端API
-      const registerApiUrl: string = 'https://your-backend-domain.com/api/register';
-
-      // 创建HTTP请求
-      const request: http.HttpRequest = http.createHttp();
-      request.request(
-        registerApiUrl,
-        {
-          method: http.RequestMethod.POST,
-          header: {
-            'Content-Type': 'application/json'
-          },
-          extraData: {
-            username: this.username,
-            password: this.password
-          },
-          connectTimeout: 60000,
-          readTimeout: 60000
-        },
-        // 修正：使用自定义的HttpError类型
-        (err: HttpError | undefined, data: http.HttpResponse) => {
-          this.isLoading = false;
-          if (!err) {
-            // 处理响应结果
-            if (data.responseCode === 200) {
-              const result: ApiResponse = JSON.parse(data.result as string);
-              if (result.success) {
-                this.errorMessage = '注册成功，请登录';
-                this.switchMode(); // 切换到登录模式
-              } else {
-                this.errorMessage = result.message || '注册失败，请稍后重试';
-              }
-            } else {
-              this.errorMessage = '服务器错误，请稍后重试';
-            }
-          } else {
-            console.error(`注册请求错误: ${JSON.stringify(err)}`);
-            this.errorMessage = '网络错误，请检查网络连接';
-          }
-          // 关闭请求
-          request.destroy();
-        }
-      );
-    }, 1000);
+  // 注册逻辑 - 调用 ApiService 对接后端
+  async register(): Promise<void> {
+    try {
+      const ok = await ApiService.register(this.username, this.password);
+      if (ok) {
+        this.errorMessage = '注册成功，请登录';
+        this.switchMode();
+      } else {
+        this.errorMessage = '注册失败，请稍后重试';
+      }
+    } catch (e) {
+      console.error('注册失败: ' + JSON.stringify(e));
+      this.errorMessage = '注册失败，请稍后重试';
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   // 跳转到TravelHomePage

@@ -24,7 +24,8 @@ interface UploadResponse {
 }
 
 class ApiService {
-  private baseUrl: string = 'https://your-api-domain.com/api';
+  // 配置后端基础地址（仅修改这里即可切换环境）
+  private baseUrl: string = 'http://localhost:8081';
   private httpRequest: http.HttpRequest = http.createHttp();
 
   // 通用请求方法
@@ -57,6 +58,55 @@ class ApiService {
   }
 
   // 用户相关接口
+  // 登录：POST /api/users/login  请求体 { username, password }
+  // 响应: { token, tokenType, userId, username, nickname, role }
+  async login(username: string, password: string): Promise<{ token: string; tokenType: string; userId: number; username: string; nickname: string; role: string; }> {
+    // 直接使用通用 request 以保持错误处理一致
+    // 后端未包裹 code/message/data 的统一结构，这里解析原始返回
+    try {
+      const options: http.HttpRequestOptions = {
+        method: http.RequestMethod.POST,
+        header: { 'Content-Type': 'application/json' },
+        extraData: JSON.stringify({ username, password })
+      };
+      const resp = await this.httpRequest.request(`${this.baseUrl}/api/users/login`, options);
+      if (resp.responseCode === 200) {
+        return JSON.parse(resp.result as string);
+      }
+      throw new Error(`HTTP Error: ${resp.responseCode}`);
+    } catch (e) {
+      console.error('Login API Error: ' + JSON.stringify(e));
+      throw new Error('登录失败');
+    }
+  }
+
+  // 注册：POST /api/users  请求体 { username, password }
+  // 响应: 创建的用户对象（不需要此处详细类型，前端仅需成功与否）
+  async register(username: string, password: string): Promise<boolean> {
+    try {
+      const options: http.HttpRequestOptions = {
+        method: http.RequestMethod.POST,
+        header: { 'Content-Type': 'application/json' },
+        extraData: JSON.stringify({ username, password })
+      };
+      const resp = await this.httpRequest.request(`${this.baseUrl}/api/users`, options);
+      if (resp.responseCode === 201 || resp.responseCode === 200) {
+        return true;
+      }
+      // 尝试读取错误消息
+      try {
+        const body = JSON.parse(resp.result as string);
+        if (body && body.message) {
+          throw new Error(body.message);
+        }
+      } catch (_) {}
+      throw new Error(`HTTP Error: ${resp.responseCode}`);
+    } catch (e) {
+      console.error('Register API Error: ' + JSON.stringify(e));
+      throw new Error('注册失败');
+    }
+  }
+
   async getUserInfo(): Promise<User> {
     return await this.request<User>('/user/info', http.RequestMethod.GET);
   }
