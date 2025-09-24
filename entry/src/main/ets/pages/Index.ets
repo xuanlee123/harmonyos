@@ -1,17 +1,8 @@
 import router from '@ohos.router';
 import http from '@ohos.net.http';
-import ApiService from '../service/ApiService';
+import ApiService, { LoginResponseDto } from '../service/ApiService';
 
-// 定义API响应数据类型
-// 后端登录返回结构（与后端 LoginResponse 对应）
-interface LoginResponseDto {
-  token: string;
-  tokenType: string; // Bearer
-  userId: number;
-  username: string;
-  nickname: string;
-  role: string;
-}
+// 登录返回类型从 ApiService 引入，避免结构化类型定义
 
 // 定义HTTP错误类型（替代http.HttpError）
 interface HttpError {

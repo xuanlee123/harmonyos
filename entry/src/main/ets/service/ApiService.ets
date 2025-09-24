@@ -23,6 +23,21 @@ interface UploadResponse {
   url: string;
 }
 
+// 后端登录返回结构
+export interface LoginResponseDto {
+  token: string;
+  tokenType: string;
+  userId: number;
+  username: string;
+  nickname: string;
+  role: string;
+}
+
+// 后端通用错误返回（当非 2xx 时可能包含 message）
+interface ErrorResponseDto {
+  message?: string;
+}
+
 class ApiService {
   // 配置后端基础地址（仅修改这里即可切换环境）
   private baseUrl: string = 'http://localhost:8081';
@@ -60,7 +75,7 @@ class ApiService {
   // 用户相关接口
   // 登录：POST /api/users/login  请求体 { username, password }
   // 响应: { token, tokenType, userId, username, nickname, role }
-  async login(username: string, password: string): Promise<{ token: string; tokenType: string; userId: number; username: string; nickname: string; role: string; }> {
+  async login(username: string, password: string): Promise<LoginResponseDto> {
     // 直接使用通用 request 以保持错误处理一致
     // 后端未包裹 code/message/data 的统一结构，这里解析原始返回
     try {
@@ -71,7 +86,7 @@ class ApiService {
       };
       const resp = await this.httpRequest.request(`${this.baseUrl}/api/users/login`, options);
       if (resp.responseCode === 200) {
-        return JSON.parse(resp.result as string);
+        return JSON.parse(resp.result as string) as LoginResponseDto;
       }
       throw new Error(`HTTP Error: ${resp.responseCode}`);
     } catch (e) {
@@ -95,11 +110,11 @@ class ApiService {
       }
       // 尝试读取错误消息
       try {
-        const body = JSON.parse(resp.result as string);
+        const body = JSON.parse(resp.result as string) as ErrorResponseDto;
         if (body && body.message) {
           throw new Error(body.message);
         }
-      } catch (_) {}
+      } catch (_e) {}
       throw new Error(`HTTP Error: ${resp.responseCode}`);
     } catch (e) {
       console.error('Register API Error: ' + JSON.stringify(e));
