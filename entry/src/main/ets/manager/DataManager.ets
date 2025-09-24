@@ -1,5 +1,5 @@
 import ApiService from '../service/ApiService';
-import { User, Message, ScenicSpot, RecommendItem, FeatureItem, HotelOrder, Feedback, TravelPost, VideoItem } from '../models/Types';
+import { User, Message, Conversation, ScenicSpot, RecommendItem, FeatureItem, HotelOrder, Feedback, TravelPost, VideoItem } from '../models/Types';
 
 class DataManager {
   // 用户数据
@@ -7,6 +7,7 @@ class DataManager {
 
   // 数据数组
   messages: Message[] = [];
+  conversations: Conversation[] = [];
   scenicSpots: ScenicSpot[] = [];
   recommendations: RecommendItem[] = [];
   hotelOrders: HotelOrder[] = [];
@@ -85,7 +86,10 @@ class DataManager {
   // 加载消息列表
   async loadMessages(page: number = 1, pageSize: number = 20): Promise<void> {
     try {
-      this.messages = await ApiService.getMessageList(page, pageSize);
+      // 使用当前用户ID作为 receiverId 拉取未读消息以触发后端日志
+      const receiverId: string = (this.userInfo && this.userInfo.id) ? this.userInfo.id : '1';
+      this.messages = await ApiService.getMessageList(page, pageSize, receiverId);
+      this.buildConversations();
     } catch (error) {
       console.error('加载消息列表失败: ' + JSON.stringify(error));
       // 设置默认消息数据
@@ -102,7 +106,39 @@ class DataManager {
           senderAvatar: '',
         },
       ];
+      this.buildConversations();
     }
+  }
+
+  // 从 messages 聚合生成 conversations（按 senderId 分组，取最新一条、统计未读）
+  private buildConversations(): void {
+    const groupMap: Map<string, Conversation> = new Map<string, Conversation>();
+    this.messages.forEach((msg: Message) => {
+      const key: string = msg.senderId && msg.senderId.length > 0 ? msg.senderId : 'official';
+      const existing = groupMap.get(key);
+      if (!existing) {
+        const conv: Conversation = new Conversation();
+        conv.id = key;
+        conv.peerId = key;
+        conv.peerAvatar = msg.senderAvatar || 'app.media.banner_hot_spring';
+        conv.name = msg.title || (msg.isOfficial ? '系统通知' : '会话');
+        conv.lastContent = msg.content || '';
+        conv.lastTime = msg.time || '';
+        conv.unread = Math.max(0, msg.badgeCount || 0);
+        conv.isOfficial = !!msg.isOfficial;
+        groupMap.set(key, conv);
+      } else {
+        // 更新时间为最近一条
+        if ((msg.time || '') > (existing.lastTime || '')) {
+          existing.lastContent = msg.content || existing.lastContent;
+          existing.lastTime = msg.time || existing.lastTime;
+          existing.name = msg.title || existing.name;
+          existing.peerAvatar = msg.senderAvatar || existing.peerAvatar;
+        }
+        existing.unread += Math.max(0, msg.badgeCount || 0);
+      }
+    });
+    this.conversations = Array.from(groupMap.values()).sort((a, b) => (b.lastTime || '').localeCompare(a.lastTime || ''));
   }
 
   // 标记消息为已读

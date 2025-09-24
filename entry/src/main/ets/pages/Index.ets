@@ -118,6 +118,20 @@ struct Index {
             this.navigateToHomePage();
           })
 
+        // 进入消息页（测试入口）
+        Button('进入消息页')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor(Color.White)
+          .fontColor('#2196F3')
+          .border({ width: 1, color: '#2196F3' })
+          .borderRadius(10)
+          .padding(12)
+          .width('80%')
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/ChatPage' });
+          })
+
         // 切换模式按钮
         Text(this.isLoginMode ? '还没有账号？立即注册' : '已有账号？立即登录')
           .fontSize(14)

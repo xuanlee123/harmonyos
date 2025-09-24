@@ -38,6 +38,27 @@ interface ErrorResponseDto {
   message?: string;
 }
 
+// 聊天相关 DTO（需在类外声明以符合 ArkTS 语法）
+interface ChatMessageDto {
+  id: number | string;
+  senderId: number | string;
+  receiverId?: number | string;
+  content: string;
+  contentType?: string;
+  createdAt?: string;
+  time?: string;
+  read?: boolean;
+  senderAvatar?: string;
+  title?: string;
+}
+
+interface SendChatPayload {
+  senderId: number;
+  receiverId: number;
+  content: string;
+  contentType: string;
+}
+
 class ApiService {
   // 配置后端基础地址（仅修改这里即可切换环境）
   private baseUrl: string = 'http://localhost:8081/api';
@@ -186,13 +207,20 @@ class ApiService {
     return await this.request<void>('/user/info', http.RequestMethod.PUT, userInfo);
   }
 
-  // 消息相关接口
-  async getMessageList(page: number = 1, pageSize: number = 20): Promise<Message[]> {
-    return await this.request<Message[]>(`/messages?page=${page}&pageSize=${pageSize}`, http.RequestMethod.GET);
+  // 消息相关接口（对齐后端 /api/chats）
+  // 兼容方法：返回指定接收者的未读消息列表，用于消息中心聚合
+  async getMessageList(page: number = 1, pageSize: number = 20, receiverId?: string): Promise<Message[]> {
+    // 若未提供 receiverId，将尝试读取全部未读（需要上层传入当前用户ID）
+    if (!receiverId) {
+      // 返回空列表，避免误请求
+      return [];
+    }
+    const raw = await this.httpGet<ChatMessageDto[]>(`/chats/unread?receiverId=${encodeURIComponent(receiverId)}`);
+    return Array.isArray(raw) ? raw.map((r) => this.mapChatDtoToMessage(r)) : [];
   }
 
   async readMessage(messageId: string): Promise<void> {
-    return await this.request<void>(`/messages/${messageId}/read`, http.RequestMethod.PUT);
+    return await this.request<void>(`/chats/${messageId}/read`, http.RequestMethod.PUT);
   }
 
   // 景点相关接口（后端 /api/attractions）
@@ -278,6 +306,44 @@ class ApiService {
 
   async getAvailableTicketTypesByAttraction(attractionId: string): Promise<TicketTypeDto[]> {
     return await this.httpGet<TicketTypeDto[]>(`/ticket-types/attraction/${attractionId}/available`);
+  }
+
+  // 聊天相关接口（后端 /api/chats）
+  private mapChatDtoToMessage(dto: ChatMessageDto): Message {
+    const m: Message = new Message();
+    m.id = String(dto.id ?? '');
+    m.type = 'chat';
+    m.title = dto.title ?? '';
+    m.content = dto.content ?? '';
+    m.time = dto.createdAt ?? dto.time ?? '';
+    m.badgeCount = dto.read ? 0 : 1;
+    m.isOfficial = false;
+    m.senderId = String(dto.senderId ?? '');
+    m.senderAvatar = dto.senderAvatar ?? '';
+    return m;
+  }
+
+  async getConversation(user1: string, user2: string): Promise<Message[]> {
+    const raw = await this.httpGet<ChatMessageDto[]>(`/chats/conversation?user1=${encodeURIComponent(user1)}&user2=${encodeURIComponent(user2)}`);
+    if (Array.isArray(raw)) {
+      return raw.map((r) => this.mapChatDtoToMessage(r));
+    }
+    return [];
+  }
+
+  async getUnreadByReceiver(receiverId: string): Promise<number> {
+    const raw = await this.httpGet<ChatMessageDto[]>(`/chats/unread?receiverId=${encodeURIComponent(receiverId)}`);
+    return Array.isArray(raw) ? raw.length : 0;
+  }
+
+  async sendChat(senderId: string, receiverId: string, content: string): Promise<Message> {
+    const payload: SendChatPayload = { senderId: Number(senderId), receiverId: Number(receiverId), content, contentType: 'TEXT' };
+    const resp = await this.request<ChatMessageDto>(`/chats`, http.RequestMethod.POST, payload);
+    return this.mapChatDtoToMessage(resp);
+  }
+
+  async markChatRead(messageId: string): Promise<void> {
+    return await this.request<void>(`/chats/${messageId}/read`, http.RequestMethod.PUT);
   }
 }
 

@@ -44,6 +44,18 @@ export class Message {
   senderAvatar: string = '';
 }
 
+// 会话（将多条消息聚合为一个最近会话项）
+export class Conversation {
+  id: string = '';
+  peerId: string = '';
+  peerAvatar: string = '';
+  name: string = '';
+  lastContent: string = '';
+  lastTime: string = '';
+  unread: number = 0;
+  isOfficial: boolean = false;
+}
+
 // 景点信息
 export class ScenicSpot {
   id: string = '';

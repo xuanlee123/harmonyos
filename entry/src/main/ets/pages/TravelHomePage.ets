@@ -1,7 +1,14 @@
 import { router } from '@kit.ArkUI';
 import DataManager from '../manager/DataManager';
-import { FeatureItem, Message, RecommendItem, ScenicSpot, VideoItem } from '../models/Types';
+import { FeatureItem, Message, RecommendItem, ScenicSpot, VideoItem, Conversation } from '../models/Types';
 import ApiService from '../service/ApiService';
+
+interface GeneratedObjectLiteralInterface_1 {
+  radius: number;
+  color: string;
+  offsetX: number;
+  offsetY: number;
+}
 
 @Entry
 @Component
@@ -11,6 +18,16 @@ struct TravelHomePage {
   @State scenicSearchText: string = '';
   @State scenicCategory: string = 'all';
   @State isRefreshing: boolean = false;
+  @State isLoadingMessages: boolean = false;
+  @State messageError: string = '';
+
+  private readonly PRIMARY_COLOR: string = '#2196F3';
+  private readonly ACCENT_COLOR: string = '#FF5652';
+  private readonly TEXT_PRIMARY: string = '#333';
+  private readonly TEXT_SECONDARY: string = '#666';
+  private readonly TEXT_MUTED: string = '#999';
+  private readonly BG_LIGHT: string = '#F5F5F5';
+  private readonly CARD_SHADOW: GeneratedObjectLiteralInterface_1 ={radius: 8, color: '#12000000', offsetX: 0, offsetY: 1 };
 
   aboutToAppear() {
     DataManager.initData();
@@ -23,14 +40,43 @@ struct TravelHomePage {
     this.isRefreshing = false;
   }
 
-  // Compute scenic spot chunks for display
-  private getScenicSpotChunks(): ScenicSpot[][] {
-    const chunkSize = 3;
+  // 仅刷新消息/会话数据
+  private async reloadConversations(): Promise<void> {
+    this.isLoadingMessages = true;
+    this.messageError = '';
+    try {
+      await DataManager.loadMessages();
+    } catch (e) {
+      this.messageError = '消息加载失败，请稍后重试';
+    } finally {
+      this.isLoadingMessages = false;
+    }
+  }
+
+  // 工具: 分组景点
+  private chunkScenicSpots(input: ScenicSpot[], chunkSize: number = 3): ScenicSpot[][] {
     const chunks: ScenicSpot[][] = [];
-    for (let i = 0; i < DataManager.scenicSpots.length; i += chunkSize) {
-      chunks.push(DataManager.scenicSpots.slice(i, i + chunkSize));
+    for (let i = 0; i < input.length; i += chunkSize) {
+      chunks.push(input.slice(i, i + chunkSize));
     }
     return chunks;
+  }
+
+  // 事件: 搜索触发
+  private triggerScenicSearch() {
+    DataManager.loadScenicSpots(this.scenicCategory, this.scenicSearchText);
+  }
+
+  // 事件: 切换视频Tab
+  private switchVideoTab(tabIndex: number) {
+    this.videoTabIndex = tabIndex;
+    if (tabIndex === 0) {
+      DataManager.loadVideos('关注');
+    } else if (tabIndex === 1) {
+      DataManager.loadScenicSpots();
+    } else {
+      DataManager.loadVideos('推荐');
+    }
   }
 
   build() {
@@ -53,19 +99,22 @@ struct TravelHomePage {
       .layoutWeight(1)
 
       // 底部导航栏
-      Row() {
-        this.NavItem('首页', $r('app.media.ic_home'), 0)
-        this.NavItem('视频', $r('app.media.ic_video'), 1)
-        this.NavItem('消息', $r('app.media.ic_message'), 2, DataManager.messages.some(msg => msg.badgeCount > 0))
-        this.NavItem('我的', $r('app.media.ic_mine'), 3)
-      }
-      .height(56)
-      .backgroundColor(Color.White)
-      .width('100%')
+      this.BottomNav()
     }
+  }
+
+  // 底部导航栏
+  @Builder
+  BottomNav() {
+    Row() {
+      this.NavItem('首页', $r('app.media.ic_home'), 0)
+      this.NavItem('视频', $r('app.media.ic_video'), 1)
+      this.NavItem('消息', $r('app.media.ic_message'), 2, DataManager.messages.some(msg => msg.badgeCount > 0))
+      this.NavItem('我的', $r('app.media.ic_mine'), 3)
+    }
+    .height(56)
+    .backgroundColor(Color.White)
     .width('100%')
-    .height('100%')
-    .backgroundColor('#F5F5F5')
   }
 
   @Builder
@@ -76,7 +125,7 @@ struct TravelHomePage {
           Image(icon)
             .width(24)
             .height(24)
-            .fillColor(this.currentIndex === index ? '#2196F3' : '#999')
+            .fillColor(this.currentIndex === index ? this.PRIMARY_COLOR : this.TEXT_MUTED)
           Circle()
             .fill('#F44336')
             .width(8)
@@ -88,12 +137,12 @@ struct TravelHomePage {
         Image(icon)
           .width(24)
           .height(24)
-          .fillColor(this.currentIndex === index ? '#2196F3' : '#999')
+          .fillColor(this.currentIndex === index ? this.PRIMARY_COLOR : this.TEXT_MUTED)
       }
 
       Text(name)
         .fontSize(11)
-        .fontColor(this.currentIndex === index ? '#2196F3' : '#999')
+        .fontColor(this.currentIndex === index ? this.PRIMARY_COLOR : this.TEXT_MUTED)
         .margin({ top: 2 })
     }
     .layoutWeight(1)
@@ -112,239 +161,19 @@ struct TravelHomePage {
   HomeContent() {
     Column() {
       // 顶部搜索栏
-      Column() {
-        Row() {
-          // 搜索框
-          Row() {
-            Image($r('app.media.ic_search'))
-              .width(20)
-              .height(20)
-              .margin({ left: 12 })
-              .fillColor('#999')
-
-            TextInput({ placeholder: '搜索目的地 / 景点', text: this.scenicSearchText })
-              .height(40)
-              .backgroundColor(Color.White)
-              .borderRadius(20)
-              .padding({ left: 8, right: 8 })
-              .layoutWeight(1)
-              .onChange((value: string) => {
-                this.scenicSearchText = value;
-              })
-              .onSubmit((enterKey, event) => {
-                DataManager.loadScenicSpots(this.scenicCategory, this.scenicSearchText);
-              })
-          }
-          .backgroundColor(Color.White)
-          .borderRadius(20)
-          .height(40)
-          .layoutWeight(1)
-          .margin({ right: 10 })
-
-          // 搜索按钮
-          Button('搜索')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor('#1976D2')
-            .fontColor(Color.White)
-            .borderRadius(20)
-            .padding({ left: 15, right: 15 })
-            .height(40)
-            .width(80)
-            .onClick(() => {
-              DataManager.loadScenicSpots(this.scenicCategory, this.scenicSearchText);
-            })
-        }
-        .justifyContent(FlexAlign.SpaceBetween)
-        .padding({ left: 15, right: 15, top: 12, bottom: 8 })
-        .width('100%')
-
-        // 热门标签
-        Flex({ wrap: FlexWrap.Wrap }) {
-          ForEach(DataManager.hotTags, (tag: string) => {
-            Text(tag)
-              .fontSize(12)
-              .backgroundColor('#1976D2')
-              .fontColor(Color.White)
-              .borderRadius(12)
-              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-              .margin({ right: 8, bottom: 8 })
-              .onClick(() => {
-                this.scenicSearchText = tag;
-                DataManager.loadScenicSpots(this.scenicCategory, tag);
-              })
-          }, (tag: string) => tag)
-        }
-        .padding({ left: 15, right: 15, top: 0, bottom: 12 })
-        .width('100%')
-      }
-      .backgroundColor('#2196F3')
-      .width('100%')
+      this.HomeSearchBar()
 
       // 主内容区
       Scroll() {
         Column() {
           // 功能导航区
-          Grid() {
-            ForEach(DataManager.features, (item: FeatureItem) => {
-              GridItem() {
-                Column() {
-                  Stack() {
-                    Circle()
-                      .fill(item.color)
-                      .width(45)
-                      .height(45)
-
-                    Image($r(item.icon))
-                      .width(22)
-                      .height(22)
-                      .fillColor(Color.White)
-
-                    if (item.badge) {
-                      Text(item.badge)
-                        .fontSize(9)
-                        .backgroundColor('#FFEB3B')
-                        .fontColor(Color.Black)
-                        .borderRadius(5)
-                        .padding({ left: 2, right: 2, top: 1, bottom: 1 })
-                        .position({ x: 32, y: -3 })
-                    }
-                  }
-                  .onClick(() => {
-                    if (item.route) {
-                      router.pushUrl({ url: item.route });
-                    }
-                  })
-
-                  Text(item.name)
-                    .fontSize(12)
-                    .margin({ top: 5 })
-                    .fontColor('#333')
-                    .maxLines(1)
-                }
-                .justifyContent(FlexAlign.Center)
-                .height(90)
-              }
-            }, (item: FeatureItem) => item.id)
-          }
-          .columnsTemplate('1fr 1fr 1fr 1fr')
-          .rowsGap(10)
-          .columnsGap(8)
-          .padding({ left: 15, right: 15, top: 15 })
-          .width('100%')
+          this.FeaturesGrid()
 
           // 横幅广告
-          Stack() {
-            Image($r('app.media.banner_hot_spring'))
-              .width('100%')
-              .height(100)
-              .objectFit(ImageFit.Cover)
-              .borderRadius(8)
-
-            Column() {
-              Text('冬日温泉')
-                .fontSize(20)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Color.White)
-
-              Text('暖/冬/旅/游/一/起/来/泡/温/泉/吧')
-                .fontSize(11)
-                .fontColor(Color.White)
-                .margin({ top: 3 })
-            }
-            .margin({ left: 12, bottom: 10 })
-            .alignItems(HorizontalAlign.Start)
-            .justifyContent(FlexAlign.End)
-          }
-          .padding({ left: 15, right: 15, top: 12, bottom: 5 })
+          this.BannerHotSpring()
 
           // 内容推荐区
-          Column() {
-            Row() {
-              Image($r('app.media.ic_location'))
-                .width(14)
-                .height(14)
-                .fillColor('#2196F3')
-
-              Text(`带你玩遍 ${DataManager.userInfo.location}`)
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor('#2196F3')
-                .margin({ left: 4 })
-            }
-            .padding({ left: 15, right: 15, top: 12, bottom: 8 })
-
-            Row() {
-              ForEach(DataManager.recommendations, (item: RecommendItem) => {
-                Column() {
-                  Stack() {
-                    Image($r(item.coverImage))
-                      .width('100%')
-                      .height(120)
-                      .objectFit(ImageFit.Cover)
-                      .borderRadius({ topLeft: 8, topRight: 8 })
-
-                    if (item.isVideo) {
-                      Column() {
-                        Image($r('app.media.ic_play'))
-                          .width(16)
-                          .height(16)
-                          .fillColor(Color.White)
-                      }
-                      .width(25)
-                      .height(25)
-                      .backgroundColor('rgba(0, 0, 0, 0.5)')
-                      .borderRadius(12)
-                      .justifyContent(FlexAlign.Center)
-                      .alignItems(HorizontalAlign.Center)
-                      .position({ x: '85%', y: 8 })
-                    }
-                  }
-
-                  Column() {
-                    Text(item.title)
-                      .fontSize(12)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor('#333')
-                      .margin({ bottom: 6 })
-                      .maxLines(2)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .height(40)
-
-                    Row() {
-                      Image($r(item.author.avatar))
-                        .width(18)
-                        .height(18)
-                        .borderRadius(9)
-
-                      Text(item.author.nickname)
-                        .fontSize(11)
-                        .fontColor('#999')
-                        .margin({ left: 4 })
-                        .layoutWeight(1)
-                        .maxLines(1)
-
-                      Text(`${item.views}次浏览`)
-                        .fontSize(11)
-                        .fontColor('#999')
-                    }
-                    .alignItems(VerticalAlign.Center)
-                    .height(20)
-                  }
-                  .padding(8)
-                  .backgroundColor(Color.White)
-                  .borderRadius({ bottomLeft: 8, bottomRight: 8 })
-                }
-                .width('48%')
-                .shadow({ radius: 3, color: '#EEEEEE' })
-                .borderRadius(8)
-                .margin({ bottom: 10 })
-                .height(200)
-              }, (item: RecommendItem) => item.id)
-            }
-            .justifyContent(FlexAlign.SpaceBetween)
-            .padding({ left: 15, right: 15 })
-          }
+          this.RecommendSection()
 
           Blank()
             .height(60)
@@ -352,13 +181,262 @@ struct TravelHomePage {
         .width('100%')
       }
       .layoutWeight(1)
-      .backgroundColor('#F5F5F5')
+      .backgroundColor(this.BG_LIGHT)
       .onScrollEdge((side) => {
         if (side.toString() === 'Top') {
           this.onRefresh();
         }
       })
     }
+  }
+
+  // 顶部搜索栏(首页)
+  @Builder
+  HomeSearchBar() {
+    Column() {
+      Row() {
+        // 搜索框
+        Row() {
+          Image($r('app.media.ic_search'))
+            .width(20)
+            .height(20)
+            .margin({ left: 12 })
+            .fillColor(this.TEXT_MUTED)
+
+          TextInput({ placeholder: '搜索目的地 / 景点', text: this.scenicSearchText })
+            .height(40)
+            .backgroundColor(Color.White)
+            .borderRadius(20)
+            .padding({ left: 8, right: 8 })
+            .layoutWeight(1)
+            .onChange((value: string) => {
+              this.scenicSearchText = value;
+            })
+            .onSubmit((enterKey, event) => {
+              this.triggerScenicSearch();
+            })
+        }
+        .backgroundColor(Color.White)
+        .borderRadius(20)
+        .height(40)
+        .layoutWeight(1)
+        .margin({ right: 10 })
+
+        // 搜索按钮
+        Button('搜索')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor('#1976D2')
+          .fontColor(Color.White)
+          .borderRadius(20)
+          .padding({ left: 15, right: 15 })
+          .height(40)
+          .width(80)
+          .onClick(() => this.triggerScenicSearch())
+      }
+      .justifyContent(FlexAlign.SpaceBetween)
+      .padding({ left: 15, right: 15, top: 12, bottom: 8 })
+      .width('100%')
+
+      // 热门标签
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(DataManager.hotTags, (tag: string) => {
+          Text(tag)
+            .fontSize(12)
+            .backgroundColor('#1976D2')
+            .fontColor(Color.White)
+            .borderRadius(12)
+            .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+            .margin({ right: 8, bottom: 8 })
+            .onClick(() => {
+              this.scenicSearchText = tag;
+              this.triggerScenicSearch();
+            })
+        }, (tag: string) => tag)
+      }
+      .padding({ left: 15, right: 15, top: 0, bottom: 12 })
+      .width('100%')
+    }
+    .backgroundColor(this.PRIMARY_COLOR)
+    .width('100%')
+  }
+
+  // 功能导航区
+  @Builder
+  FeaturesGrid() {
+    Grid() {
+      ForEach(DataManager.features, (item: FeatureItem) => {
+        GridItem() {
+          Column() {
+            Stack() {
+              Circle()
+                .fill(item.color)
+                .width(45)
+                .height(45)
+
+              Image($r(item.icon))
+                .width(22)
+                .height(22)
+                .fillColor(Color.White)
+
+              if (item.badge) {
+                Text(item.badge)
+                  .fontSize(9)
+                  .backgroundColor('#FFEB3B')
+                  .fontColor(Color.Black)
+                  .borderRadius(5)
+                  .padding({ left: 2, right: 2, top: 1, bottom: 1 })
+                  .position({ x: 32, y: -3 })
+              }
+            }
+            .onClick(() => {
+              if (item.route) {
+                router.pushUrl({ url: item.route });
+              }
+            })
+
+            Text(item.name)
+              .fontSize(12)
+              .margin({ top: 5 })
+              .fontColor(this.TEXT_PRIMARY)
+              .maxLines(1)
+          }
+          .justifyContent(FlexAlign.Center)
+          .height(90)
+        }
+      }, (item: FeatureItem) => item.id)
+    }
+    .columnsTemplate('1fr 1fr 1fr 1fr')
+    .rowsGap(10)
+    .columnsGap(8)
+    .padding({ left: 15, right: 15, top: 15 })
+    .width('100%')
+  }
+
+  // 横幅广告
+  @Builder
+  BannerHotSpring() {
+    Stack() {
+      Image($r('app.media.banner_hot_spring'))
+        .width('100%')
+        .height(100)
+        .objectFit(ImageFit.Cover)
+        .borderRadius(8)
+
+      Column() {
+        Text('冬日温泉')
+          .fontSize(20)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Color.White)
+
+        Text('暖/冬/旅/游/一/起/来/泡/温/泉/吧')
+          .fontSize(11)
+          .fontColor(Color.White)
+          .margin({ top: 3 })
+      }
+      .margin({ left: 12, bottom: 10 })
+      .alignItems(HorizontalAlign.Start)
+      .justifyContent(FlexAlign.End)
+    }
+    .padding({ left: 15, right: 15, top: 12, bottom: 5 })
+  }
+
+  // 内容推荐区
+  @Builder
+  RecommendSection() {
+    Column() {
+      Row() {
+        Image($r('app.media.ic_location'))
+          .width(14)
+          .height(14)
+          .fillColor(this.PRIMARY_COLOR)
+
+        Text(`带你玩遍 ${DataManager.userInfo.location}`)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.PRIMARY_COLOR)
+          .margin({ left: 4 })
+      }
+      .padding({ left: 15, right: 15, top: 12, bottom: 8 })
+
+      Row() {
+        ForEach(DataManager.recommendations, (item: RecommendItem) => {
+          this.RecommendCard(item)
+        }, (item: RecommendItem) => item.id)
+      }
+      .justifyContent(FlexAlign.SpaceBetween)
+      .padding({ left: 15, right: 15 })
+    }
+  }
+
+  @Builder
+  RecommendCard(item: RecommendItem) {
+    Column() {
+      Stack() {
+        Image($r(item.coverImage))
+          .width('100%')
+          .height(120)
+          .objectFit(ImageFit.Cover)
+          .borderRadius({ topLeft: 8, topRight: 8 })
+
+        if (item.isVideo) {
+          Column() {
+            Image($r('app.media.ic_play'))
+              .width(16)
+              .height(16)
+              .fillColor(Color.White)
+          }
+          .width(25)
+          .height(25)
+          .backgroundColor('rgba(0, 0, 0, 0.5)')
+          .borderRadius(12)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .position({ x: '85%', y: 8 })
+        }
+      }
+
+      Column() {
+        Text(item.title)
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.TEXT_PRIMARY)
+          .margin({ bottom: 6 })
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .height(40)
+
+        Row() {
+          Row() {
+            Image($r(item.author.avatar))
+              .width(18)
+              .height(18)
+              .borderRadius(9)
+
+            Text(item.author.nickname)
+              .fontSize(11)
+              .fontColor(this.TEXT_MUTED)
+              .margin({ left: 4 })
+              .layoutWeight(1)
+              .maxLines(1)
+          }
+
+          Text(`${item.views}次浏览`)
+            .fontSize(11)
+            .fontColor(this.TEXT_MUTED)
+        }
+        .alignItems(VerticalAlign.Center)
+        .height(20)
+      }
+      .padding(8)
+      .backgroundColor(Color.White)
+      .borderRadius({ bottomLeft: 8, bottomRight: 8 })
+    }
+    .width('48%')
+    .shadow({ radius: 3, color: '#EEEEEE' })
+    .borderRadius(8)
+    .margin({ bottom: 10 })
+    .height(200)
   }
 
   // 视频页面内容
@@ -369,32 +447,23 @@ struct TravelHomePage {
       Row() {
         Text('关注')
           .fontSize(16)
-          .fontColor(this.videoTabIndex === 0 ? '#FF5652' : '#999')
+          .fontColor(this.videoTabIndex === 0 ? this.ACCENT_COLOR : this.TEXT_MUTED)
           .fontWeight(this.videoTabIndex === 0 ? FontWeight.Medium : FontWeight.Normal)
           .margin({ right: 24 })
-          .onClick(() => {
-            this.videoTabIndex = 0;
-            DataManager.loadVideos('关注');
-          })
+          .onClick(() => this.switchVideoTab(0))
 
         Text('名胜')
           .fontSize(16)
-          .fontColor(this.videoTabIndex === 1 ? '#FF5652' : '#999')
+          .fontColor(this.videoTabIndex === 1 ? this.ACCENT_COLOR : this.TEXT_MUTED)
           .fontWeight(this.videoTabIndex === 1 ? FontWeight.Medium : FontWeight.Normal)
           .margin({ right: 24 })
-          .onClick(() => {
-            this.videoTabIndex = 1;
-            DataManager.loadScenicSpots();
-          })
+          .onClick(() => this.switchVideoTab(1))
 
         Text('推荐')
           .fontSize(16)
-          .fontColor(this.videoTabIndex === 2 ? '#FF5652' : '#999')
+          .fontColor(this.videoTabIndex === 2 ? this.ACCENT_COLOR : this.TEXT_MUTED)
           .fontWeight(this.videoTabIndex === 2 ? FontWeight.Medium : FontWeight.Normal)
-          .onClick(() => {
-            this.videoTabIndex = 2;
-            DataManager.loadVideos('推荐');
-          })
+          .onClick(() => this.switchVideoTab(2))
 
         Blank()
           .layoutWeight(1)
@@ -418,81 +487,7 @@ struct TravelHomePage {
     Scroll() {
       Column() {
         ForEach(DataManager.videos, (video: VideoItem) => {
-          Column() {
-            Stack() {
-              Image($r(video.coverImage))
-                .width('100%')
-                .height(200)
-                .objectFit(ImageFit.Cover)
-
-              Column() {
-                Image($r('app.media.ic_play'))
-                  .width(40)
-                  .height(40)
-                  .fillColor(Color.White)
-              }
-              .width(60)
-              .height(60)
-              .backgroundColor('rgba(0, 0, 0, 0.5)')
-              .borderRadius(30)
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-            }
-
-            Column() {
-              Text(video.title)
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor('#333')
-                .margin({ bottom: 8 })
-                .maxLines(2)
-
-              Row() {
-                Row() {
-                  Image($r(video.author.avatar))
-                    .width(30)
-                    .height(30)
-                    .borderRadius(15)
-                    .margin({ right: 8 })
-
-                  Text(video.author.nickname)
-                    .fontSize(14)
-                    .fontColor('#666')
-                }
-                .layoutWeight(1)
-
-                Row() {
-                  Image($r('app.media.ic_bus'))
-                    .width(16)
-                    .height(16)
-                    .fillColor('#999')
-                    .margin({ right: 4 })
-
-                  Text(`${video.views}次播放`)
-                    .fontSize(12)
-                    .fontColor('#999')
-                    .margin({ right: 12 })
-
-                  Image($r('app.media.ic_message'))
-                    .width(16)
-                    .height(16)
-                    .fillColor('#999')
-                    .margin({ right: 4 })
-
-                  Text(video.comments.toString())
-                    .fontSize(12)
-                    .fontColor('#999')
-                }
-              }
-              .alignItems(VerticalAlign.Center)
-            }
-            .padding(12)
-            .backgroundColor(Color.White)
-          }
-          .margin({ bottom: 12 })
-          .backgroundColor(Color.White)
-          .borderRadius(8)
-          .width('100%')
+          this.VideoCard(video)
         }, (video: VideoItem) => video.id)
       }
       .padding(12)
@@ -500,12 +495,90 @@ struct TravelHomePage {
     .layoutWeight(1)
   }
 
+  @Builder
+  VideoCard(video: VideoItem) {
+    Column() {
+      Stack() {
+        Image($r(video.coverImage))
+          .width('100%')
+          .height(200)
+          .objectFit(ImageFit.Cover)
+
+        Column() {
+          Image($r('app.media.ic_play'))
+            .width(40)
+            .height(40)
+            .fillColor(Color.White)
+        }
+        .width(60)
+        .height(60)
+        .backgroundColor('rgba(0, 0, 0, 0.5)')
+        .borderRadius(30)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      }
+
+      Column() {
+        Text(video.title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.TEXT_PRIMARY)
+          .margin({ bottom: 8 })
+          .maxLines(2)
+
+        Row() {
+          Row() {
+            Image($r(video.author.avatar))
+              .width(30)
+              .height(30)
+              .borderRadius(15)
+              .margin({ right: 8 })
+
+            Text(video.author.nickname)
+              .fontSize(14)
+              .fontColor(this.TEXT_SECONDARY)
+          }
+          .layoutWeight(1)
+
+          Row() {
+            Image($r('app.media.ic_bus'))
+              .width(16)
+              .height(16)
+              .fillColor(this.TEXT_MUTED)
+              .margin({ right: 4 })
+
+            Text(`${video.views}次播放`)
+              .fontSize(12)
+              .fontColor(this.TEXT_MUTED)
+              .margin({ right: 12 })
+
+            Image($r('app.media.ic_message'))
+              .width(16)
+              .height(16)
+              .fillColor(this.TEXT_MUTED)
+              .margin({ right: 4 })
+
+            Text(video.comments.toString())
+              .fontSize(12)
+              .fontColor(this.TEXT_MUTED)
+          }
+        }
+        .alignItems(VerticalAlign.Center)
+      }
+      .padding(12)
+      .backgroundColor(Color.White)
+    }
+    .margin({ bottom: 12 })
+    .backgroundColor(Color.White)
+    .borderRadius(8)
+    .width('100%')
+  }
+
   // 名胜景点内容
   @Builder
   ScenicSpotsContent() {
     Column() {
       this.ScenicSearchBar()
-
       this.ScenicCategories()
 
       Scroll() {
@@ -513,12 +586,12 @@ struct TravelHomePage {
           Text('名胜 推荐')
             .fontSize(18)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#333')
+            .fontColor(this.TEXT_PRIMARY)
             .margin({ top: 16, left: 16, bottom: 12 })
             .width('100%')
 
-          // 分组显示景点
-          ForEach(this.getScenicSpotChunks(), (chunk: ScenicSpot[]) => {
+          // 分组显示景点（不在 @Builder 内声明变量）
+          ForEach(this.chunkScenicSpots(DataManager.scenicSpots, 3), (chunk: ScenicSpot[], idx: number) => {
             Row() {
               ForEach(chunk, (spot: ScenicSpot) => {
                 this.ScenicSpotCard(spot)
@@ -529,12 +602,12 @@ struct TravelHomePage {
             .justifyContent(FlexAlign.SpaceBetween)
             .margin({ bottom: 16 })
 
-            if (this.getScenicSpotChunks().indexOf(chunk) < this.getScenicSpotChunks().length - 1) {
+            if (idx < this.chunkScenicSpots(DataManager.scenicSpots, 3).length - 1) {
               Divider()
                 .color('#EEEEEE')
                 .margin({ left: 16, right: 16, bottom: 16 })
             }
-          }, (chunk: ScenicSpot[], index: number) => index.toString())
+          }, (chunk: ScenicSpot[], idx: number) => idx.toString())
         }
       }
       .layoutWeight(1)
@@ -550,10 +623,10 @@ struct TravelHomePage {
           .width(20)
           .height(20)
           .margin({ left: 12, right: 8 })
-          .fillColor('#999')
+          .fillColor(this.TEXT_MUTED)
 
         TextInput({ placeholder: '搜索景点/目的地', text: this.scenicSearchText })
-          .placeholderColor('#999')
+          .placeholderColor(this.TEXT_MUTED)
           .placeholderFont({ size: 16, weight: FontWeight.Normal })
           .height(40)
           .backgroundColor(Color.Transparent)
@@ -561,9 +634,7 @@ struct TravelHomePage {
           .onChange((value: string) => {
             this.scenicSearchText = value;
           })
-          .onSubmit((enterKey, event) => {
-            DataManager.loadScenicSpots(this.scenicCategory, this.scenicSearchText);
-          })
+          .onSubmit((enterKey, event) => this.triggerScenicSearch())
       }
       .height(40)
       .backgroundColor(Color.White)
@@ -576,7 +647,7 @@ struct TravelHomePage {
         .height(24)
     }
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.BG_LIGHT)
     .width('100%')
   }
 
@@ -605,8 +676,8 @@ struct TravelHomePage {
   CategoryChip(name: string, isSelected: boolean) {
     Text(name)
       .fontSize(14)
-      .fontColor(isSelected ? '#2196F3' : '#666')
-      .backgroundColor(isSelected ? '#E3F2FD' : '#F5F5F5')
+      .fontColor(isSelected ? this.PRIMARY_COLOR : this.TEXT_SECONDARY)
+      .backgroundColor(isSelected ? '#E3F2FD' : this.BG_LIGHT)
       .borderRadius(16)
       .padding({ left: 16, right: 16, top: 8, bottom: 8 })
       .margin({ right: 12 })
@@ -616,7 +687,7 @@ struct TravelHomePage {
             name === '历史古迹' ? 'history' :
               name === '主题公园' ? 'park' :
                 name === '博物馆' ? 'museum' : 'religion';
-        DataManager.loadScenicSpots(this.scenicCategory, this.scenicSearchText);
+        this.triggerScenicSearch();
       })
   }
 
@@ -655,7 +726,7 @@ struct TravelHomePage {
       Text(spot.name)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#333')
+        .fontColor(this.TEXT_PRIMARY)
         .margin({ top: 8 })
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -663,7 +734,7 @@ struct TravelHomePage {
 
       Text(spot.location)
         .fontSize(12)
-        .fontColor('#666')
+        .fontColor(this.TEXT_SECONDARY)
         .margin({ top: 4 })
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -684,117 +755,158 @@ struct TravelHomePage {
   @Builder
   MessageContent() {
     Column() {
-      Text('消息')
-        .fontSize(20)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#333')
-        .padding({ left: 20, top: 15, bottom: 15 })
-        .width('100%')
-        .backgroundColor(Color.White)
+      this.ChatHeader()
 
-      Scroll() {
+      if (this.isLoadingMessages) {
         Column() {
-          ForEach(DataManager.messages, (item: Message, index: number) => {
-            Column() {
-              Row() {
-                if (item.type === 'order') {
-                  Image($r('app.media.ic_bus'))
-                    .width(40)
-                    .height(40)
-                    .borderRadius(20)
-                    .backgroundColor('#E3F2FD')
-                } else if (item.type === 'interaction') {
-                  Image($r('app.media.ic_culture'))
-                    .width(40)
-                    .height(40)
-                    .borderRadius(20)
-                    .backgroundColor('#E8F5E8')
-                } else if (item.type === 'system') {
-                  Image($r('app.media.ic_map'))
-                    .width(40)
-                    .height(40)
-                    .borderRadius(20)
-                    .backgroundColor('#FFF3E0')
-                } else {
-                  Image($r(item.senderAvatar || 'app.media.banner_hot_spring'))
-                    .width(40)
-                    .height(40)
-                    .borderRadius(20)
-                }
-
-                Column() {
-                  Row() {
-                    Text(item.title)
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor('#333')
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .layoutWeight(1)
-
-                    if (item.isOfficial) {
-                      Text('官方')
-                        .fontSize(10)
-                        .fontColor('#2196F3')
-                        .backgroundColor('#E3F2FD')
-                        .borderRadius(3)
-                        .padding({ left: 4, right: 4, top: 1, bottom: 1 })
-                        .margin({ left: 6 })
-                    }
-
-                    Text(item.time)
-                      .fontSize(11)
-                      .fontColor('#999')
-                      .maxLines(1)
-                      .margin({ left: 8 })
-                  }
-                  .width('100%')
-
-                  Text(item.content)
-                    .fontSize(14)
-                    .fontColor('#666')
-                    .margin({ top: 6 })
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                }
-                .margin({ left: 12 })
-                .layoutWeight(1)
-
-                if (item.badgeCount > 0) {
-                  Circle()
-                    .fill('#F44336')
-                    .width(8)
-                    .height(8)
-                    .margin({ left: 8 })
-                }
-              }
-              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-              .width('100%')
-
-              if (index < DataManager.messages.length - 1) {
-                Divider()
-                  .color('#EEEEEE')
-                  .margin({ left: 68, right: 16 })
-              }
-            }
-            .onClick(() => {
-              // 标记为已读
-              if (item.badgeCount > 0) {
-                ApiService.readMessage(item.id);
-                item.badgeCount = 0;
-              }
-            })
-          }, (item: Message, index: number) => item.id)
+          LoadingProgress()
+          Text('加载中...')
+            .fontSize(12)
+            .fontColor(this.TEXT_MUTED)
+            .margin({ top: 8 })
         }
-        .backgroundColor(Color.White)
-        .width('100%')
+        .height('80%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      } else if (this.messageError) {
+        Column() {
+          Text(this.messageError)
+            .fontSize(14)
+            .fontColor('#F44336')
+            .margin({ bottom: 8 })
+          Button('重试')
+            .backgroundColor(this.PRIMARY_COLOR)
+            .fontColor(Color.White)
+            .borderRadius(8)
+            .padding(10)
+            .onClick(() => this.reloadConversations())
+        }
+        .height('80%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      } else if (DataManager.messages.length === 0) {
+        this.ChatEmpty()
+      } else {
+        List() {
+          ForEach(DataManager.messages, (m: Message) => {
+            ListItem() {
+              this.ChatMessageCard(m)
+            }
+            .margin({ left: 16, right: 16, top: 8, bottom: 8 })
+            .onClick(async () => {
+              try {
+                if (m.id) {
+                  await ApiService.readMessage(m.id);
+                  m.badgeCount = 0;
+                }
+              } catch (e) {
+                console.warn('readMessage failed: ' + JSON.stringify(e));
+              }
+              const peerId: string = m.senderId || '';
+              const peerName: string = m.title || '会话';
+              const peerAvatar: string = m.senderAvatar || 'app.media.banner_hot_spring';
+              router.pushUrl({ url: `pages/ChatDetailPage?peerId=${encodeURIComponent(peerId)}&peerName=${encodeURIComponent(peerName)}&peerAvatar=${encodeURIComponent(peerAvatar)}` });
+            })
+          }, (m: Message) => m.id)
+        }
+        .edgeEffect(EdgeEffect.None)
       }
-      .layoutWeight(1)
     }
     .width('100%')
-    .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.BG_LIGHT)
+  }
+
+  @Builder
+  ChatHeader() {
+    Row() {
+      Image($r('app.media.ic_message1'))
+        .width(22)
+        .height(22)
+        .margin({ right: 8 })
+      Text('消息中心')
+        .fontSize(20)
+        .fontWeight(FontWeight.Medium)
+      Blank()
+      if (this.isLoadingMessages) {
+        LoadingProgress()
+      } else {
+        Text('刷新')
+          .fontSize(14)
+          .fontColor(this.PRIMARY_COLOR)
+          .onClick(() => this.reloadConversations())
+      }
+    }
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .width('100%')
+    .backgroundColor(Color.White)
+  }
+
+  @Builder
+  ChatEmpty() {
+    Column() {
+      Image($r('app.media.ic_message1'))
+        .width(80)
+        .height(80)
+        .margin({ bottom: 12 })
+      Text('暂无消息')
+        .fontSize(14)
+        .fontColor(this.TEXT_MUTED)
+    }
+    .width('100%')
+    .height('70%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  ChatMessageCard(item: Message) {
+    Column() {
+      Row() {
+        Image(item.senderAvatar && item.senderAvatar.length > 0 ? item.senderAvatar : $r('app.media.app_icon'))
+          .width(42)
+          .height(42)
+          .borderRadius(21)
+          .objectFit(ImageFit.Cover)
+          .margin({ right: 12 })
+
+        Column() {
+          Row() {
+            Text(item.title || '系统消息')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Blank()
+            Text(item.time || '')
+              .fontSize(12)
+              .fontColor(this.TEXT_MUTED)
+          }
+
+          Text(item.content || '')
+            .fontSize(14)
+            .fontColor(this.TEXT_SECONDARY)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+          if (item.badgeCount && item.badgeCount > 0) {
+            Row() {
+              Text(`${item.badgeCount} 条未读`)
+                .fontSize(12)
+                .fontColor(Color.White)
+                .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+                .backgroundColor('#FF7043')
+                .borderRadius(10)
+            }
+          }
+        }
+        .flexGrow(1)
+      }
+    }
+    .padding(14)
+    .width('100%')
+    .backgroundColor(Color.White)
+    .borderRadius(12)
+    .shadow({ radius: 12, color: '#1A000000', offsetX: 0, offsetY: 2 })
   }
 
   // 我的页面内容
@@ -814,7 +926,7 @@ struct TravelHomePage {
                 Text(DataManager.userInfo.nickname)
                   .fontSize(18)
                   .fontWeight(FontWeight.Medium)
-                  .fontColor('#333')
+                  .fontColor(this.TEXT_PRIMARY)
 
                 Text(`Lv.${DataManager.userInfo.level}`)
                   .fontSize(12)
@@ -828,12 +940,12 @@ struct TravelHomePage {
               Row() {
                 Text(DataManager.userInfo.gender === 'male' ? '男' : '女')
                   .fontSize(14)
-                  .fontColor('#666')
+                  .fontColor(this.TEXT_SECONDARY)
                   .margin({ right: 20 })
 
                 Text('个人主页 >')
                   .fontSize(14)
-                  .fontColor('#2196F3')
+                  .fontColor(this.PRIMARY_COLOR)
               }
               .margin({ top: 6 })
             }
@@ -847,12 +959,12 @@ struct TravelHomePage {
           Column() {
             Text(`优惠券：${DataManager.userInfo.couponCount}张`)
               .fontSize(14)
-              .fontColor('#333')
+              .fontColor(this.TEXT_PRIMARY)
               .margin({ bottom: 4 })
 
             Text(`金币：${DataManager.userInfo.coinCount.toLocaleString()}个`)
               .fontSize(14)
-              .fontColor('#333')
+              .fontColor(this.TEXT_PRIMARY)
               .fontWeight(FontWeight.Medium)
           }
 
@@ -868,14 +980,14 @@ struct TravelHomePage {
           Text('我的门票')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#333')
+            .fontColor(this.TEXT_PRIMARY)
             .margin({ bottom: 15 })
 
           Grid() {
-            this.ProfileGridItem('全部门票', DataManager.hotelOrders.length.toString(), '#2196F3')
-            this.ProfileGridItem('待付款', DataManager.hotelOrders.filter(order => order.status === 'pending').length.toString(), '#333')
-            this.ProfileGridItem('未使用', DataManager.hotelOrders.filter(order => order.status === 'unused').length.toString(), '#333')
-            this.ProfileGridItem('待评价', '0', '#333')
+            this.ProfileGridItem('全部门票', DataManager.hotelOrders.length.toString(), this.PRIMARY_COLOR)
+            this.ProfileGridItem('待付款', DataManager.hotelOrders.filter(order => order.status === 'pending').length.toString(), this.TEXT_PRIMARY)
+            this.ProfileGridItem('未使用', DataManager.hotelOrders.filter(order => order.status === 'unused').length.toString(), this.TEXT_PRIMARY)
+            this.ProfileGridItem('待评价', '0', this.TEXT_PRIMARY)
           }
           .columnsTemplate('1fr 1fr 1fr 1fr')
           .rowsGap(10)
@@ -889,7 +1001,7 @@ struct TravelHomePage {
           Text('基础服务')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#333')
+            .fontColor(this.TEXT_PRIMARY)
             .margin({ bottom: 15 })
 
           Grid() {
@@ -916,7 +1028,7 @@ struct TravelHomePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#F5F5F5')
+    .backgroundColor(this.BG_LIGHT)
   }
 
   @Builder
@@ -928,7 +1040,7 @@ struct TravelHomePage {
           .fontColor(color)
         Text(value)
           .fontSize(12)
-          .fontColor('#999')
+          .fontColor(this.TEXT_MUTED)
           .margin({ top: 4 })
       }
       .width('100%')
@@ -944,11 +1056,11 @@ struct TravelHomePage {
         Image(icon)
           .width(24)
           .height(24)
-          .fillColor('#2196F3')
+          .fillColor(this.PRIMARY_COLOR)
           .margin({ bottom: 8 })
         Text(name)
           .fontSize(12)
-          .fontColor('#333')
+          .fontColor(this.TEXT_PRIMARY)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }

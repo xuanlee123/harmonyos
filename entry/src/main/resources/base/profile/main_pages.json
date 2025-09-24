@@ -5,6 +5,8 @@
     "pages/TravelPostPage",
     "pages/HotelOrderPage",
     "pages/FeedbackPage",
-    "pages/ThemeTravelPage"
+    "pages/ThemeTravelPage",
+    "pages/ChatPage",
+    "pages/ChatDetailPage"
   ]
 }
