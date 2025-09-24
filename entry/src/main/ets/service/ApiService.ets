@@ -1,5 +1,5 @@
 import http from '@ohos.net.http';
-import { User, Message, ScenicSpot, RecommendItem, FeatureItem, HotelOrder, Feedback, TravelPost, VideoItem, AttractionDto, TicketTypeDto } from '../models/Types';
+import { User, Message, ScenicSpot, RecommendItem, FeatureItem, HotelOrder, Feedback, TravelPost, VideoItem, AttractionDto, TicketTypeDto, HotelBookingDto } from '../models/Types';
 
 // Define interface for API response
 interface ApiResponse<T> {
@@ -40,7 +40,7 @@ interface ErrorResponseDto {
 
 class ApiService {
   // 配置后端基础地址（仅修改这里即可切换环境）
-  private baseUrl: string = 'http://localhost:8081';
+  private baseUrl: string = 'http://localhost:8081/api';
   private httpRequest: http.HttpRequest = http.createHttp();
 
   // 通用请求方法
@@ -72,19 +72,78 @@ class ApiService {
     }
   }
 
+  // GET 辅助
+  private async httpGet<T>(path: string): Promise<T> {
+    const options: http.HttpRequestOptions = { method: http.RequestMethod.GET };
+    const resp = await this.httpRequest.request(`${this.baseUrl}${path}`, options);
+    if (resp.responseCode === 200) {
+      return JSON.parse(resp.result as string) as T;
+    }
+    throw new Error(`HTTP Error: ${resp.responseCode}`);
+  }
+
+  // 映射：AttractionDto -> ScenicSpot
+  private mapAttractionToScenicSpot(a: AttractionDto): ScenicSpot {
+    const images: string[] = a.images ? this.safeParseImages(a.images) : [];
+    const reviews = (a.review_count !== undefined ? a.review_count : 0);
+    const location = a.city ? a.city : (a.address ? a.address : '');
+    const spot: ScenicSpot = new ScenicSpot();
+    spot.id = String(a.id);
+    spot.name = a.name || '';
+    spot.level = a.category || '';
+    spot.rating = a.rating ?? 0;
+    spot.reviews = reviews;
+    spot.distance = 0;
+    spot.price = 0;
+    spot.isFree = false;
+    spot.heatLevel = 0;
+    spot.location = location;
+    spot.description = a.description || '';
+    spot.category = a.category || '';
+    spot.images = images.length > 0 ? images : [];
+    return spot;
+  }
+
+  // 映射：HotelBookingDto -> HotelOrder（UI）
+  private mapHotelBookingToOrder(b: HotelBookingDto): HotelOrder {
+    const order = new HotelOrder();
+    order.id = String(b.id);
+    // 状态码到 UI 文本的映射由页面完成，这里保留 status code 语义
+    order.status = (b.status === 0 ? 'pending' : (b.status === 1 ? 'unused' : (b.status === 2 ? 'cancelled' : 'used')));
+    order.hotelName = `酒店#${b.hotel_id}`;
+    order.address = '';
+    order.checkInDate = b.checkin_date;
+    order.checkOutDate = b.checkout_date;
+    order.nights = b.nights;
+    order.rooms = 1;
+    order.roomType = '';
+    order.price = Math.round(b.total_amount / 100);
+    order.orderTime = b.created_at;
+    return order;
+  }
+
+  private safeParseImages(raw: string): string[] {
+    try {
+      const parsed: string[] = JSON.parse(raw) as string[];
+      if (Array.isArray(parsed)) {
+        const valid: boolean = parsed.every((item: string) => typeof item === 'string');
+        return valid ? parsed : [];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   // 用户相关接口
-  // 登录：POST /api/users/login  请求体 { username, password }
-  // 响应: { token, tokenType, userId, username, nickname, role }
   async login(username: string, password: string): Promise<LoginResponseDto> {
-    // 直接使用通用 request 以保持错误处理一致
-    // 后端未包裹 code/message/data 的统一结构，这里解析原始返回
     try {
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.POST,
         header: { 'Content-Type': 'application/json' },
         extraData: JSON.stringify({ username, password })
       };
-      const resp = await this.httpRequest.request(`${this.baseUrl}/api/users/login`, options);
+      const resp = await this.httpRequest.request(`${this.baseUrl}/users/login`, options);
       if (resp.responseCode === 200) {
         return JSON.parse(resp.result as string) as LoginResponseDto;
       }
@@ -95,8 +154,6 @@ class ApiService {
     }
   }
 
-  // 注册：POST /api/users  请求体 { username, password }
-  // 响应: 创建的用户对象（不需要此处详细类型，前端仅需成功与否）
   async register(username: string, password: string): Promise<boolean> {
     try {
       const options: http.HttpRequestOptions = {
@@ -104,11 +161,10 @@ class ApiService {
         header: { 'Content-Type': 'application/json' },
         extraData: JSON.stringify({ username, password })
       };
-      const resp = await this.httpRequest.request(`${this.baseUrl}/api/users`, options);
+      const resp = await this.httpRequest.request(`${this.baseUrl}/users`, options);
       if (resp.responseCode === 201 || resp.responseCode === 200) {
         return true;
       }
-      // 尝试读取错误消息
       try {
         const body = JSON.parse(resp.result as string) as ErrorResponseDto;
         if (body && body.message) {
@@ -140,51 +196,8 @@ class ApiService {
   }
 
   // 景点相关接口（后端 /api/attractions）
-  private async httpGet<T>(path: string): Promise<T> {
-    const options: http.HttpRequestOptions = { method: http.RequestMethod.GET };
-    const resp = await this.httpRequest.request(`${this.baseUrl}${path}`, options);
-    if (resp.responseCode === 200) {
-      return JSON.parse(resp.result as string) as T;
-    }
-    throw new Error(`HTTP Error: ${resp.responseCode}`);
-  }
-
-  private mapAttractionToScenicSpot(a: AttractionDto): ScenicSpot {
-    const images: string[] = a.images ? this.safeParseImages(a.images) : [];
-    const reviews = (a.review_count !== undefined ? a.review_count : 0);
-    const location = a.city ? a.city : (a.address ? a.address : '');
-    const spot: ScenicSpot = new ScenicSpot();
-    spot.id = String(a.id);
-    spot.name = a.name || '';
-    spot.level = a.category || '';
-    spot.rating = a.rating ?? 0;
-    spot.reviews = reviews;
-    spot.distance = 0;
-    spot.price = 0;
-    spot.isFree = false;
-    spot.heatLevel = 0;
-    spot.location = location;
-    spot.description = a.description || '';
-    spot.category = a.category || '';
-    spot.images = images.length > 0 ? images : [];
-    return spot;
-  }
-
-  private safeParseImages(raw: string): string[] {
-    try {
-      const parsed: string[] = JSON.parse(raw) as string[];
-      if (Array.isArray(parsed)) {
-        const valid: boolean = parsed.every((item: string) => typeof item === 'string');
-        return valid ? parsed : [];
-      }
-      return [];
-    } catch (e) {
-      return [];
-    }
-  }
-
   async getScenicSpots(category?: string, keyword?: string, page: number = 1): Promise<ScenicSpot[]> {
-    const list = await this.httpGet<AttractionDto[]>(`/api/attractions`);
+    const list = await this.httpGet<AttractionDto[]>(`/attractions`);
     let mapped = list.map((a) => this.mapAttractionToScenicSpot(a));
     if (category && category !== 'all') {
       mapped = mapped.filter(s => (s.category || '').toLowerCase().includes(category.toLowerCase()));
@@ -199,7 +212,7 @@ class ApiService {
   }
 
   async getScenicSpotDetail(id: string): Promise<ScenicSpot> {
-    const a = await this.httpGet<AttractionDto>(`/api/attractions/${id}`);
+    const a = await this.httpGet<AttractionDto>(`/attractions/${id}`);
     return this.mapAttractionToScenicSpot(a);
   }
 
@@ -222,27 +235,19 @@ class ApiService {
     return await this.request<FeatureItem[]>('/features', http.RequestMethod.GET);
   }
 
-  // 酒店订单接口
+  // 酒店订单（后端 t_hotel_booking）
   async getHotelOrders(status?: string, page: number = 1): Promise<HotelOrder[]> {
-    let url = `/hotel/orders?page=${page}`;
-    if (status && status !== '全部') {
-      const statusMap: Record<string, string> = {
-        '全部': '',
-        '待付款': 'pending',
-        '未使用': 'unused',
-        '已取消': 'cancelled'
-      };
-      url += `&status=${statusMap[status]}`;
-    }
-    return await this.request<HotelOrder[]>(url, http.RequestMethod.GET);
+    let url = `/hotel-bookings?page=${page}`;
+    const list = await this.httpGet<HotelBookingDto[]>(url);
+    return list.map(b => this.mapHotelBookingToOrder(b));
   }
 
   async cancelHotelOrder(orderId: string): Promise<void> {
-    return await this.request<void>(`/hotel/orders/${orderId}/cancel`, http.RequestMethod.PUT);
+    return await this.request<void>(`/hotel-bookings/${orderId}/cancel`, http.RequestMethod.PUT);
   }
 
   async payHotelOrder(orderId: string): Promise<void> {
-    return await this.request<void>(`/hotel/orders/${orderId}/pay`, http.RequestMethod.PUT);
+    return await this.request<void>(`/hotel-bookings/${orderId}/pay`, http.RequestMethod.PUT);
   }
 
   // 反馈接口
@@ -268,11 +273,11 @@ class ApiService {
 
   // 门票相关接口（根据后端 /api/ticket-types 与 /api/ticket-bookings）
   async getTicketTypesByAttraction(attractionId: string): Promise<TicketTypeDto[]> {
-    return await this.httpGet<TicketTypeDto[]>(`/api/ticket-types/attraction/${attractionId}`);
+    return await this.httpGet<TicketTypeDto[]>(`/ticket-types/attraction/${attractionId}`);
   }
 
   async getAvailableTicketTypesByAttraction(attractionId: string): Promise<TicketTypeDto[]> {
-    return await this.httpGet<TicketTypeDto[]>(`/api/ticket-types/attraction/${attractionId}/available`);
+    return await this.httpGet<TicketTypeDto[]>(`/ticket-types/attraction/${attractionId}/available`);
   }
 }
 

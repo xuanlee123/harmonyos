@@ -149,6 +149,26 @@ export class TicketBookingDto {
   updated_at: string = '';
 }
 
+// t_hotel_booking
+export class HotelBookingDto {
+  id: number = 0;
+  order_no: string = '';
+  user_id: number = 0;
+  hotel_id: number = 0;
+  room_id: number = 0;
+  checkin_date: string = '';
+  checkout_date: string = '';
+  nights: number = 0;
+  guest_name: string = '';
+  guest_phone: string = '';
+  total_amount: number = 0;
+  status: number = 0; // 0-待支付,1-已支付,2-已取消,3-已退款
+  payment_time: string = '';
+  cancel_time: string = '';
+  created_at: string = '';
+  updated_at: string = '';
+}
+
 // 反馈信息
 export class Feedback {
   id: string = '';
